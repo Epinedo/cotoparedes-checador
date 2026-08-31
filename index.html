@@ -120,7 +120,8 @@
                 </div>
                 <p class="text-[11px] text-neutral-400 leading-relaxed font-display">
                     El sistema registrará con precisión las entradas, salidas y tiempos de comida en tiempo real[cite: 3].
-                    La captura fotográfica valida la asistencia e incidencias conforme al Art. 132 LFT[cite: 3].
+                    La foto de verificación se toma sola (no requiere botón) y, junto con tu ubicación GPS,
+                    es obligatoria para poder fichar conforme al Art. 132 LFT[cite: 3].
                 </p>
             </div>
 
@@ -182,8 +183,12 @@
         <video id="frontVideoFeed" autoplay playsinline muted></video>
         <canvas id="photoCanvas" class="hidden" width="640" height="640"></canvas>
 
-        <div class="absolute bottom-10 w-full flex justify-center z-20">
-            <button onclick="capturarYProcesar()" class="w-16 h-16 bg-white rounded-full border-4 border-neutral-400 active:scale-90 transition-transform shadow-[0_0_20px_rgba(255,255,255,0.3)]"></button>
+        <!-- NUEVO: la captura ya NO depende de que el trabajador toque un botón.
+             Se toma sola tras una cuenta regresiva, para que quien esté frente
+             a la cámara no controle el momento exacto de la foto. -->
+        <div id="countdownOverlay" class="absolute inset-0 z-20 hidden flex-col items-center justify-center bg-black/30">
+            <span id="countdownNumber" class="text-white text-[72px] font-display font-bold leading-none"></span>
+            <p class="text-white text-[10px] font-label-caps uppercase tracking-widest mt-3 px-8 text-center">Mantén tu rostro frente a la cámara</p>
         </div>
     </div>
 
@@ -245,6 +250,24 @@
     let empleadoDetectado = '';
     let currentGps = { lat: null, lon: null };
 
+    // NUEVO: bandera de aborto por manipulación. Si el trabajador (o quien
+    // esté con el teléfono) sale de esta pestaña/app mientras se está
+    // validando GPS o tomando la foto, se cancela todo el intento — nadie
+    // puede minimizar la app, dejar que otra persona pose, y regresar.
+    let flujoAbortado = false;
+
+    document.addEventListener('visibilitychange', () => {
+        const enQr = document.getElementById('state-qr').style.display === 'flex';
+        const enFoto = document.getElementById('state-photo').style.display === 'flex';
+        if (document.hidden && (enQr || enFoto)) {
+            flujoAbortado = true;
+            if (frontVideoStream) frontVideoStream.getTracks().forEach(t => t.stop());
+            if (html5QrCode && html5QrCode.isScanning) html5QrCode.stop().catch(() => {});
+            mostrarNotificacion('error', 'Registro cancelado', 'Saliste de la pantalla durante la verificación, así que el checado NO se registró. Vuelve a intentarlo sin salir de la app.');
+            resetApp(3500);
+        }
+    });
+
     setInterval(() => {
         document.getElementById('clockDisplay').textContent = new Date().toLocaleTimeString('es-MX', { hour12: false, hour: '2-digit', minute:'2-digit' });
     }, 1000);
@@ -295,6 +318,32 @@
         );
     }
 
+    // NUEVO: antes, si el GPS no llegaba a tiempo, el checado se guardaba de
+    // todos modos con "Sin GPS" — eso deja sin efecto cualquier validación de
+    // ubicación. Ahora el flujo se detiene hasta tener una posición real (o
+    // hasta agotar el tiempo de espera, en cuyo caso se cancela el registro).
+    function esperarGpsObligatorio_(timeoutMs) {
+        return new Promise((resolve, reject) => {
+            if (currentGps.lat !== null && currentGps.lon !== null) {
+                resolve(currentGps);
+                return;
+            }
+            const inicio = Date.now();
+            const intervalo = setInterval(() => {
+                if (flujoAbortado) {
+                    clearInterval(intervalo);
+                    reject(new Error('Proceso cancelado.'));
+                } else if (currentGps.lat !== null && currentGps.lon !== null) {
+                    clearInterval(intervalo);
+                    resolve(currentGps);
+                } else if (Date.now() - inicio > timeoutMs) {
+                    clearInterval(intervalo);
+                    reject(new Error('No se pudo obtener tu ubicación GPS a tiempo. Activa el GPS/ubicación de tu teléfono y vuelve a intentar.'));
+                }
+            }, 300);
+        });
+    }
+
     // Cargar catálogo de obras activas al iniciar (ahora vía fetch, no google.script.run)
     window.addEventListener('load', async () => {
         const r = await llamarBackend_('obtenerObras', {});
@@ -333,6 +382,7 @@
     }
 
     async function iniciarFlujo(tipo) {
+        flujoAbortado = false;
         iniciarGps_();
         tipoMovimientoActual = tipo;
         const manualId = document.getElementById('manualEmpId').value.trim();
@@ -402,6 +452,21 @@
         }
 
         empleadoDetectado = empId;
+
+        // NUEVO: se exige una posición GPS real antes de abrir la cámara. Si no
+        // llega, el intento se cancela — no se ficha "sin GPS".
+        mostrarNotificacion('hourglass_empty', 'Ubicando tu posición', 'Obteniendo tu ubicación GPS...');
+        try {
+            await esperarGpsObligatorio_(15000);
+        } catch (errGps) {
+            if (!flujoAbortado) {
+                mostrarNotificacion('error', 'GPS requerido', errGps.message);
+                resetApp(3500);
+            }
+            return;
+        }
+        if (flujoAbortado) return;
+
         document.getElementById('notificationOverlay').style.display = 'none';
         iniciarCamaraFrontal();
     }
@@ -456,13 +521,75 @@
         alert(resultado);
     }
 
+    // NUEVO: espera a que el video de la cámara frontal realmente tenga imagen
+    // (no solo a que getUserMedia haya devuelto el stream) antes de arrancar
+    // la cuenta regresiva, para no capturar un cuadro negro/vacío.
+    function esperarVideoListo_(video) {
+        return new Promise((resolve, reject) => {
+            if (video.readyState >= 2 && video.videoWidth > 0) { resolve(); return; }
+            const onReady = () => {
+                video.removeEventListener('loadedmetadata', onReady);
+                clearTimeout(limite);
+                if (video.videoWidth > 0) resolve();
+                else reject(new Error('No se pudo inicializar la imagen de la cámara frontal.'));
+            };
+            video.addEventListener('loadedmetadata', onReady);
+            const limite = setTimeout(() => {
+                video.removeEventListener('loadedmetadata', onReady);
+                if (video.videoWidth > 0) resolve();
+                else reject(new Error('La cámara frontal no envió imagen a tiempo.'));
+            }, 6000);
+        });
+    }
+
+    // NUEVO: cuenta regresiva visible antes de la captura automática. El
+    // trabajador ya no decide CUÁNDO se toma la foto (antes lo hacía con el
+    // botón), lo que quita margen para que alguien más pose en su lugar de
+    // forma controlada.
+    function ejecutarCuentaRegresiva_(segundos) {
+        return new Promise((resolve, reject) => {
+            const overlay = document.getElementById('countdownOverlay');
+            const numEl = document.getElementById('countdownNumber');
+            overlay.style.display = 'flex';
+            let restante = segundos;
+            numEl.textContent = restante;
+            const tick = setInterval(() => {
+                if (flujoAbortado) {
+                    clearInterval(tick);
+                    overlay.style.display = 'none';
+                    reject(new Error('Proceso cancelado.'));
+                    return;
+                }
+                restante--;
+                if (restante <= 0) {
+                    clearInterval(tick);
+                    overlay.style.display = 'none';
+                    resolve();
+                } else {
+                    numEl.textContent = restante;
+                }
+            }, 1000);
+        });
+    }
+
+    // NUEVO: si la evidencia (foto, o la cámara en general) falla por
+    // cualquier motivo, el intento se cancela por completo — NO se registra
+    // asistencia sin foto. Antes el sistema fichaba igual con
+    // "Sin Evidencia", que es exactamente el hueco que permite que alguien
+    // más checque por otro sin dejar rastro.
+    function abortarPorFalloEvidencia_(mensaje) {
+        if (frontVideoStream) frontVideoStream.getTracks().forEach(track => track.stop());
+        document.getElementById('countdownOverlay').style.display = 'none';
+        mostrarNotificacion('error', 'No se pudo registrar', mensaje + ' Tu asistencia NO fue registrada — vuelve a intentarlo.');
+        resetApp(3800);
+    }
+
     async function iniciarCamaraFrontal() {
         switchState('state-photo');
         const video = document.getElementById('frontVideoFeed');
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            mostrarNotificacion('error', 'Sin acceso a cámara', 'Este navegador no permite tomar la foto de evidencia. Abre el enlace en Chrome o Safari.');
-            setTimeout(() => procesarFichajeBackend(null), 2500);
+            abortarPorFalloEvidencia_('Este navegador no permite tomar la foto de verificación. Abre el enlace en Chrome o Safari.');
             return;
         }
 
@@ -476,11 +603,19 @@
                 'La cámara frontal no respondió (posible bloqueo de permisos).'
             );
             video.srcObject = frontVideoStream;
+
+            await esperarVideoListo_(video);
+            if (flujoAbortado) return;
+
+            await ejecutarCuentaRegresiva_(3);
+            if (flujoAbortado) return;
+
+            capturarYProcesar();
         } catch (err) {
+            if (flujoAbortado) return; // ya se avisó por visibilitychange
             console.error('Error de cámara frontal:', err);
             const detalle = (err && (err.message || err.name)) ? (err.message || err.name) : 'No se pudo abrir la cámara frontal.';
-            mostrarNotificacion('sync', 'Sin foto de evidencia', detalle + ' Se continuará sin foto.');
-            setTimeout(() => procesarFichajeBackend(null), 2000);
+            abortarPorFalloEvidencia_(detalle);
         }
     }
 
