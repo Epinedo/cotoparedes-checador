@@ -207,6 +207,14 @@
     // del sandbox de Apps Script.
     const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzbwTZkite46PYpmQeaXjNozUDXJeG9riRFZCrVWIzeQxuuXT3fvjNAUucrrtxSnjhGLQ/exec';
 
+    // NUEVO: token compartido — debe ser EXACTAMENTE igual al valor de
+    // TOKEN_CHECADOR_EXTERNO en Backend_Router.gs. Si no coinciden, doPost()
+    // rechaza la solicitud con "No autorizado". No es un secreto perfecto
+    // (esta página es de código visible), pero evita el abuso de oportunidad
+    // de que cualquiera que encuentre la URL de Apps Script pueda llamarla
+    // directamente sin pasar por este checador.
+    const TOKEN_CHECADOR_EXTERNO = '9a72c9e32f294c97f7cb54f48ac3b84e4ea5c964cb9bfc48';
+
     if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.indexOf('PEGA_AQUI') !== -1) {
         document.getElementById('configWarning').style.display = 'block';
     }
@@ -221,7 +229,7 @@
             const resp = await fetch(APPS_SCRIPT_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify(Object.assign({ action }, datos || {}))
+                body: JSON.stringify(Object.assign({ action, token: TOKEN_CHECADOR_EXTERNO }, datos || {}))
             });
             if (!resp.ok) throw new Error('Respuesta HTTP ' + resp.status);
             return await resp.json();
