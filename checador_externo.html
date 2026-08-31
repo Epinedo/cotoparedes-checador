@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+    <title>Terminal de Campo | COTAPAREDES</title>
+
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <script>
+        window.__qrLibFallo = false;
+        function __cargarQrLibFallback_() {
+            const s = document.createElement('script');
+            s.src = 'https://unpkg.com/html5-qrcode';
+            s.onerror = () => { window.__qrLibFallo = true; };
+            document.head.appendChild(s);
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"
+            onerror="__cargarQrLibFallback_()"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+
+    <script id="tailwind-config">
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#000000",
+                        secondary: "#5d5e60",
+                        surface: "#ffffff",
+                        error: "#ba1a1a"
+                    },
+                    fontFamily: {
+                        "label-caps": ["Geist", "sans-serif"],
+                        "display": ["Inter", "sans-serif"]
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #000000; overflow: hidden; overscroll-behavior: none; color: white; font-family: 'Inter', sans-serif;}
+        .mobile-container { height: 100dvh; display: flex; flex-direction: column; position: relative;}
+
+        .camera-viewport { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: #000; display: none; flex-direction: column;}
+        #qr-reader { width: 100%; flex-grow: 1; border: none; }
+        #qr-reader__scan_region { background: #111; }
+        #frontVideoFeed { object-fit: cover; width: 100%; height: 100%; opacity: 0.9; }
+
+        .fade-in { animation: fadeIn 0.3s ease-in-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        select#obraSelect {
+            background-color: #171717;
+            color: white;
+        }
+        select#obraSelect option {
+            background-color: #171717;
+            color: white;
+        }
+
+        #browserWarning {
+            display: none;
+            position: absolute; top: 0; left: 0; right: 0; z-index: 40;
+            background: #ba1a1a; color: white; padding: 10px 14px;
+            font-size: 11px; line-height: 1.4; text-align: center;
+        }
+        #gpsStatus {
+            display: flex; align-items: center; gap: 4px;
+            font-size: 9px; letter-spacing: .05em; text-transform: uppercase;
+            color: #8a8a8a;
+        }
+        #gpsStatus .dot { width: 6px; height: 6px; border-radius: 50%; background: #8a8a8a; }
+        #gpsStatus.ok .dot { background: #22c55e; }
+        #gpsStatus.error .dot { background: #ba1a1a; }
+
+        /* NUEVO: aviso si falta configurar la URL del backend antes de subir este
+           archivo a producción. */
+        #configWarning {
+            display: none;
+            position: absolute; top: 0; left: 0; right: 0; z-index: 50;
+            background: #b45309; color: white; padding: 10px 14px;
+            font-size: 11px; line-height: 1.4; text-align: center;
+        }
+    </style>
+</head>
+<body class="antialiased selection:bg-neutral-800">
+
+<div class="mobile-container w-full max-w-md mx-auto bg-primary">
+
+    <!-- NUEVO: aviso si no se configuró la URL del backend de Apps Script -->
+    <div id="configWarning">
+        ⚠️ Falta configurar APPS_SCRIPT_URL al inicio del &lt;script&gt; de este archivo con la URL /exec de tu implementación de Apps Script.
+    </div>
+
+    <div id="browserWarning">
+        Detectamos que abriste este enlace dentro de otra app (WhatsApp/Instagram/Facebook).
+        Esa vista suele bloquear la cámara y el GPS. Toca el menú (⋮) y elige
+        "Abrir en el navegador" (Chrome/Safari) para poder fichar.
+    </div>
+
+    <!-- ESTADO 1: DASHBOARD PRINCIPAL -->
+    <div id="state-dashboard" class="flex flex-col h-full z-0 fade-in">
+        <header class="p-5 border-b border-neutral-800 flex justify-between items-center shrink-0">
+            <div>
+                <h1 class="text-2xl font-display font-semibold tracking-tighter leading-none">COTAPAREDES</h1>
+                <p class="text-[9px] font-label-caps uppercase tracking-[0.2em] text-neutral-400 mt-1">Terminal de Campo</p>
+            </div>
+            <div class="flex flex-col items-end gap-1">
+                <div id="clockDisplay" class="text-xl font-display font-medium">--:--</div>
+                <div id="gpsStatus"><span class="dot"></span><span id="gpsStatusTexto">GPS: buscando…</span></div>
+            </div>
+        </header>
+
+        <main class="flex-grow flex flex-col justify-center px-6">
+            <div class="border border-neutral-800 bg-neutral-900/50 p-5 rounded-sm">
+                <div class="flex items-start gap-3 mb-3">
+                    <span class="material-symbols-outlined text-neutral-300">shield_person</span>
+                    <h2 class="text-xs font-label-caps uppercase tracking-widest text-neutral-200">Control Biométrico Activo</h2>
+                </div>
+                <p class="text-[11px] text-neutral-400 leading-relaxed font-display">
+                    El sistema registrará con precisión las entradas, salidas y tiempos de comida en tiempo real[cite: 3].
+                    La captura fotográfica valida la asistencia e incidencias conforme al Art. 132 LFT[cite: 3].
+                </p>
+            </div>
+
+            <div class="mt-8 border-t border-neutral-800 pt-6">
+                <label class="text-[9px] font-label-caps text-neutral-500 uppercase tracking-widest mb-2 block">Obra / Centro de Trabajo</label>
+                <select id="obraSelect" class="w-full bg-neutral-900 border border-neutral-700 focus:border-white focus:ring-0 px-3 py-2 text-sm font-display rounded-sm">
+                    <option value="">Cargando obras...</option>
+                </select>
+            </div>
+
+            <div class="mt-6 border-t border-neutral-800 pt-6">
+                <label class="text-[9px] font-label-caps text-neutral-500 uppercase tracking-widest mb-2 block">ID de Empleado (Manual)</label>
+                <input type="text" id="manualEmpId" placeholder="Ej. EMP-0142" class="w-full bg-transparent border-0 border-b border-neutral-600 focus:border-white focus:ring-0 px-0 py-2 text-xl font-display uppercase transition-colors placeholder:text-neutral-700" autocomplete="off"/>
+            </div>
+
+            <div class="mt-6 pt-2">
+                <button type="button" onclick="probarCamaraYGps()" class="w-full border border-neutral-800 text-neutral-500 py-2.5 rounded-sm text-[9px] font-label-caps uppercase tracking-widest active:scale-95 transition-transform flex items-center justify-center gap-2">
+                    <span class="material-symbols-outlined text-sm">bug_report</span> Probar Cámara y GPS
+                </button>
+            </div>
+        </main>
+
+        <footer class="p-4 shrink-0 border-t border-neutral-800">
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="iniciarFlujo('ENTRADA')" class="bg-white text-black py-4 rounded-sm text-[10px] font-label-caps uppercase tracking-widest active:scale-95 transition-transform flex items-center justify-center gap-2">
+                    <span class="material-symbols-outlined text-sm">login</span> Entrada
+                </button>
+                <button onclick="iniciarFlujo('SALIDA')" class="bg-transparent text-white border border-white py-4 rounded-sm text-[10px] font-label-caps uppercase tracking-widest hover:bg-neutral-900 active:scale-95 transition-transform flex items-center justify-center gap-2">
+                    <span class="material-symbols-outlined text-sm">logout</span> Salida
+                </button>
+                <button onclick="iniciarFlujo('INICIO COMIDA')" class="bg-neutral-800 text-white py-4 rounded-sm text-[10px] font-label-caps uppercase tracking-widest active:scale-95 transition-transform flex items-center justify-center gap-2">
+                    <span class="material-symbols-outlined text-sm">restaurant</span> Iniciar Comida
+                </button>
+                <button onclick="iniciarFlujo('FIN COMIDA')" class="bg-neutral-800 text-white py-4 rounded-sm text-[10px] font-label-caps uppercase tracking-widest active:scale-95 transition-transform flex items-center justify-center gap-2">
+                    <span class="material-symbols-outlined text-sm">task_alt</span> Fin Comida
+                </button>
+            </div>
+        </footer>
+    </div>
+
+    <!-- ESTADO 2: CÁMARA TRASERA (QR) -->
+    <div id="state-qr" class="camera-viewport">
+        <div class="p-4 flex justify-between items-center bg-black/80 backdrop-blur-md absolute top-0 w-full z-20">
+            <span class="text-xs font-label-caps uppercase tracking-widest text-white flex items-center gap-2">
+                <span class="material-symbols-outlined text-sm">qr_code_scanner</span> Escaneando Credencial
+            </span>
+            <button onclick="cancelarFlujo()" class="text-neutral-400 hover:text-white"><span class="material-symbols-outlined">close</span></button>
+        </div>
+        <div id="qr-reader" class="h-full w-full flex items-center justify-center"></div>
+    </div>
+
+    <!-- ESTADO 3: CÁMARA FRONTAL (FOTO) -->
+    <div id="state-photo" class="camera-viewport">
+        <div class="p-4 flex justify-between items-center bg-black/80 backdrop-blur-md absolute top-0 w-full z-20">
+            <span class="text-xs font-label-caps uppercase tracking-widest text-white flex items-center gap-2">
+                <span class="material-symbols-outlined text-sm">face</span> Verificación Facial
+            </span>
+        </div>
+        <video id="frontVideoFeed" autoplay playsinline muted></video>
+        <canvas id="photoCanvas" class="hidden" width="640" height="640"></canvas>
+
+        <div class="absolute bottom-10 w-full flex justify-center z-20">
+            <button onclick="capturarYProcesar()" class="w-16 h-16 bg-white rounded-full border-4 border-neutral-400 active:scale-90 transition-transform shadow-[0_0_20px_rgba(255,255,255,0.3)]"></button>
+        </div>
+    </div>
+
+    <!-- OVERLAY: NOTIFICACIONES -->
+    <div id="notificationOverlay" class="absolute inset-0 bg-black/90 z-50 hidden flex-col items-center justify-center px-6 text-center fade-in">
+        <span id="notifIcon" class="material-symbols-outlined text-[64px] mb-4">hourglass_empty</span>
+        <h3 id="notifTitle" class="text-lg font-display font-semibold mb-2">Procesando...</h3>
+        <p id="notifMessage" class="text-xs font-label-caps uppercase tracking-widest text-neutral-400"></p>
+    </div>
+
+</div>
+
+<script>
+    // =========================================================================
+    // CONFIGURACIÓN — lo único que hay que editar antes de publicar este archivo
+    // =========================================================================
+    // Pega aquí la URL /exec de tu implementación de Apps Script (Backend_Router.gs
+    // → doPost). Es la MISMA URL que usa el Portal RH / el checador dentro de
+    // Apps Script, solo que esta página vive fuera de Apps Script (en GitHub
+    // Pages, Netlify, etc.) para poder pedir permiso de cámara sin el bloqueo
+    // del sandbox de Apps Script.
+    const APPS_SCRIPT_URL = 'PEGA_AQUI_TU_URL_DE_APPS_SCRIPT/exec';
+
+    if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.indexOf('PEGA_AQUI') !== -1) {
+        document.getElementById('configWarning').style.display = 'block';
+    }
+
+    // Helper único para hablar con el backend de Apps Script. Usa POST con
+    // Content-Type "text/plain" a propósito: así el navegador lo trata como
+    // "solicitud simple" y NO manda un preflight OPTIONS antes — Apps Script no
+    // sabe responder a esos preflights, así que con application/json fallaría.
+    // Del lado de Apps Script, doPost() igual lee el cuerpo como JSON normal.
+    async function llamarBackend_(action, datos) {
+        try {
+            const resp = await fetch(APPS_SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(Object.assign({ action }, datos || {}))
+            });
+            if (!resp.ok) throw new Error('Respuesta HTTP ' + resp.status);
+            return await resp.json();
+        } catch (err) {
+            console.error('Error de red hacia Apps Script:', err);
+            return { success: false, message: 'No se pudo conectar con el servidor. Revisa tu internet.' };
+        }
+    }
+
+    let html5QrCode;
+    let frontVideoStream;
+    let tipoMovimientoActual = '';
+    let empleadoDetectado = '';
+    let currentGps = { lat: null, lon: null };
+
+    setInterval(() => {
+        document.getElementById('clockDisplay').textContent = new Date().toLocaleTimeString('es-MX', { hour12: false, hour: '2-digit', minute:'2-digit' });
+    }, 1000);
+
+    function detectarNavegadorInApp_() {
+        const ua = navigator.userAgent || '';
+        return /FBAN|FBAV|FB_IAB|Instagram|WhatsApp|Line\//i.test(ua);
+    }
+    if (detectarNavegadorInApp_()) {
+        document.getElementById('browserWarning').style.display = 'block';
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        const w = document.getElementById('browserWarning');
+        w.textContent = 'Este navegador no permite el acceso a la cámara desde esta página. Abre el enlace en Chrome o Safari actualizados.';
+        w.style.display = 'block';
+    }
+
+    function actualizarEstadoGps_(estado, texto) {
+        const el = document.getElementById('gpsStatus');
+        const txt = document.getElementById('gpsStatusTexto');
+        el.classList.remove('ok', 'error');
+        if (estado) el.classList.add(estado);
+        txt.textContent = texto;
+    }
+
+    let gpsIniciado = false;
+    function iniciarGps_() {
+        if (gpsIniciado) return;
+        gpsIniciado = true;
+
+        if (!navigator.geolocation) {
+            actualizarEstadoGps_('error', 'GPS: no soportado');
+            return;
+        }
+
+        navigator.geolocation.watchPosition(
+            pos => {
+                currentGps.lat = pos.coords.latitude;
+                currentGps.lon = pos.coords.longitude;
+                actualizarEstadoGps_('ok', 'GPS: activo');
+            },
+            err => {
+                console.warn("GPS no disponible", err);
+                const motivos = { 1: 'permiso denegado', 2: 'sin señal', 3: 'tiempo agotado' };
+                actualizarEstadoGps_('error', 'GPS: ' + (motivos[err.code] || 'no disponible'));
+            },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+        );
+    }
+
+    // Cargar catálogo de obras activas al iniciar (ahora vía fetch, no google.script.run)
+    window.addEventListener('load', async () => {
+        const r = await llamarBackend_('obtenerObras', {});
+        if (r.success) {
+            cargarObras(r.obras);
+        } else {
+            const sel = document.getElementById('obraSelect');
+            sel.innerHTML = '<option value="">Error al cargar obras</option>';
+            mostrarNotificacion('error', 'Error de Conexión', r.message || 'No se pudo cargar el catálogo de obras.');
+            setTimeout(() => { document.getElementById('notificationOverlay').style.display = 'none'; }, 4000);
+        }
+    });
+
+    function cargarObras(obras) {
+        const sel = document.getElementById('obraSelect');
+        sel.innerHTML = '<option value="">Seleccione obra...</option>';
+        if (obras && obras.length > 0) {
+            obras.forEach(o => sel.innerHTML += `<option value="${o}">${o}</option>`);
+        } else {
+            sel.innerHTML = '<option value="">Sin obras registradas</option>';
+        }
+    }
+
+    function switchState(stateId) {
+        document.getElementById('state-dashboard').style.display = 'none';
+        document.getElementById('state-qr').style.display = 'none';
+        document.getElementById('state-photo').style.display = 'none';
+        document.getElementById(stateId).style.display = 'flex';
+    }
+
+    function conTimeout_(promesa, ms, mensajeTimeout) {
+        return Promise.race([
+            promesa,
+            new Promise((_, reject) => setTimeout(() => reject(new Error(mensajeTimeout)), ms))
+        ]);
+    }
+
+    async function iniciarFlujo(tipo) {
+        iniciarGps_();
+        tipoMovimientoActual = tipo;
+        const manualId = document.getElementById('manualEmpId').value.trim();
+
+        if (manualId) {
+            await procesarIdentificacion_(manualId);
+        } else {
+            if (typeof Html5Qrcode === 'undefined') {
+                mostrarNotificacion('error', 'Lector QR no disponible',
+                    window.__qrLibFallo
+                        ? 'No se pudo cargar el lector de QR (revisa tu conexión a internet) o abre el enlace en Chrome/Safari.'
+                        : 'El lector de QR aún no termina de cargar, espera unos segundos e intenta de nuevo.');
+                setTimeout(cancelarFlujo, 3500);
+                return;
+            }
+
+            switchState('state-qr');
+            html5QrCode = new Html5Qrcode("qr-reader");
+            let yaProcesado = false;
+
+            try {
+                await conTimeout_(
+                    html5QrCode.start(
+                        { facingMode: "environment" },
+                        { fps: 10, qrbox: { width: 250, height: 250 } },
+                        (decodedText) => {
+                            if (yaProcesado) return;
+                            yaProcesado = true;
+                            html5QrCode.stop()
+                                .then(() => procesarIdentificacion_(decodedText))
+                                .catch(() => procesarIdentificacion_(decodedText));
+                        }
+                    ),
+                    10000,
+                    'La cámara no respondió. Si abriste este enlace desde WhatsApp/Instagram, ábrelo en tu navegador (Chrome/Safari).'
+                );
+            } catch (err) {
+                console.error('Error de cámara QR:', err);
+                const detalle = (err && (err.message || err.name)) ? (err.message || err.name) : 'Permisos de cámara denegados.';
+                mostrarNotificacion('error', 'Cámara Falló', detalle);
+                setTimeout(cancelarFlujo, 4000);
+            }
+        }
+    }
+
+    // Valida al empleado (existe + está ACTIVO) INMEDIATAMENTE después de leer
+    // el QR o capturar el ID manual, y ANTES de pedir la cámara frontal y el
+    // GPS — ahora vía fetch() al backend de Apps Script en vez de google.script.run.
+    async function procesarIdentificacion_(idCrudo) {
+        const empId = (idCrudo || '').trim().toUpperCase();
+
+        if (!empId) {
+            mostrarNotificacion('error', 'ID Vacío', 'No se detectó un ID de empleado válido.');
+            resetApp(2500);
+            return;
+        }
+
+        switchState('state-dashboard');
+        mostrarNotificacion('hourglass_empty', 'Validando Empleado', `Verificando ID: ${empId}...`);
+
+        const validacion = await llamarBackend_('validarEmpleado', { empId });
+
+        if (!validacion.success) {
+            mostrarNotificacion('error', 'Empleado No Válido', validacion.message);
+            resetApp(3000);
+            return;
+        }
+
+        empleadoDetectado = empId;
+        document.getElementById('notificationOverlay').style.display = 'none';
+        iniciarCamaraFrontal();
+    }
+
+    async function probarCamaraYGps() {
+        let resultado = 'DIAGNÓSTICO DE CÁMARA Y GPS\n\n';
+        resultado += `Página: ${location.href}\n`;
+        resultado += `Contexto seguro (HTTPS): ${window.isSecureContext ? 'Sí' : 'NO'}\n\n`;
+
+        try {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                resultado += 'CÁMARA: API no disponible en este navegador.\n';
+            } else {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                resultado += 'CÁMARA: permiso CONCEDIDO.\n';
+                stream.getTracks().forEach(t => t.stop());
+            }
+        } catch (e) {
+            resultado += `CÁMARA: FALLÓ (${e.name}: ${e.message}).\n`;
+            if (e.name === 'NotAllowedError') {
+                resultado += ' -> Ya estaba denegada de un intento anterior. Hay que restablecerla desde el ícono de info/candado de ESTA página.\n';
+            }
+        }
+
+        resultado += '\n';
+
+        await new Promise(resolve => {
+            if (!navigator.geolocation) {
+                resultado += 'GPS: API no disponible.\n';
+                resolve();
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                pos => {
+                    resultado += `GPS: permiso CONCEDIDO (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}).\n`;
+                    resolve();
+                },
+                err => {
+                    const motivos = { 1: 'permiso denegado', 2: 'posición no disponible', 3: 'tiempo agotado' };
+                    resultado += `GPS: FALLÓ (${motivos[err.code] || err.message}).\n`;
+                    if (err.code === 1) {
+                        resultado += ' -> Ya estaba denegado de un intento anterior. Hay que restablecerlo desde el ícono de info/candado de ESTA página.\n';
+                    }
+                    resolve();
+                },
+                { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+            );
+        });
+
+        resultado += '\nSi dice "denegado": mantén tocado el ícono de información (i) o candado junto a la dirección de ESTA página exacta, entra a "Permisos del sitio" y activa Cámara y Ubicación. Luego recarga esta página.';
+
+        alert(resultado);
+    }
+
+    async function iniciarCamaraFrontal() {
+        switchState('state-photo');
+        const video = document.getElementById('frontVideoFeed');
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            mostrarNotificacion('error', 'Sin acceso a cámara', 'Este navegador no permite tomar la foto de evidencia. Abre el enlace en Chrome o Safari.');
+            setTimeout(() => procesarFichajeBackend(null), 2500);
+            return;
+        }
+
+        try {
+            frontVideoStream = await conTimeout_(
+                navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
+                    audio: false
+                }),
+                10000,
+                'La cámara frontal no respondió (posible bloqueo de permisos).'
+            );
+            video.srcObject = frontVideoStream;
+        } catch (err) {
+            console.error('Error de cámara frontal:', err);
+            const detalle = (err && (err.message || err.name)) ? (err.message || err.name) : 'No se pudo abrir la cámara frontal.';
+            mostrarNotificacion('sync', 'Sin foto de evidencia', detalle + ' Se continuará sin foto.');
+            setTimeout(() => procesarFichajeBackend(null), 2000);
+        }
+    }
+
+    function estamparMarcaDeAgua_(ctx, canvas, empId) {
+        const ahora = new Date();
+        const texto = `ID: ${empId || '—'} | ${ahora.toLocaleDateString('es-MX')} ${ahora.toLocaleTimeString('es-MX', { hour12: false })}`;
+        const fontSize = Math.max(14, Math.floor(canvas.width / 22));
+
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.shadowColor = 'black';
+        ctx.shadowBlur = 4;
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.fillText(texto, canvas.width - 14, canvas.height - 14);
+    }
+
+    function capturarYProcesar() {
+        const video = document.getElementById('frontVideoFeed');
+        const canvas = document.getElementById('photoCanvas');
+        const ctx = canvas.getContext('2d');
+
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        estamparMarcaDeAgua_(ctx, canvas, empleadoDetectado);
+        const photoBase64 = canvas.toDataURL('image/jpeg', 0.6);
+
+        if (frontVideoStream) {
+            frontVideoStream.getTracks().forEach(track => track.stop());
+        }
+
+        procesarFichajeBackend(photoBase64);
+    }
+
+    async function procesarFichajeBackend(photoBase64) {
+        mostrarNotificacion('sync', 'Guardando Registro', `Validando: ${tipoMovimientoActual}`);
+
+        const payload = {
+            empId: empleadoDetectado,
+            type: tipoMovimientoActual,
+            lat: currentGps.lat,
+            lon: currentGps.lon,
+            photoBase64: photoBase64,
+            obra: document.getElementById('obraSelect').value
+        };
+
+        const res = await llamarBackend_('registrarAsistencia', payload);
+
+        if (res.success) {
+            mostrarNotificacion('check_circle', '¡Éxito!', `${res.employee} — ${res.message}`);
+        } else {
+            mostrarNotificacion('error', 'Rechazado', res.message);
+        }
+        resetApp(3000);
+    }
+
+    function cancelarFlujo() {
+        if(html5QrCode && html5QrCode.isScanning) html5QrCode.stop().catch(() => {});
+        if(frontVideoStream) frontVideoStream.getTracks().forEach(track => track.stop());
+        resetApp(0);
+    }
+
+    function mostrarNotificacion(icon, title, message) {
+        const overlay = document.getElementById('notificationOverlay');
+        const iconEl = document.getElementById('notifIcon');
+
+        iconEl.textContent = icon;
+        document.getElementById('notifTitle').textContent = title;
+        document.getElementById('notifMessage').textContent = message;
+
+        if(icon === 'error' || icon === 'wifi_off') iconEl.className = 'material-symbols-outlined text-[64px] mb-4 text-error';
+        else if (icon === 'check_circle') iconEl.className = 'material-symbols-outlined text-[64px] mb-4 text-white';
+        else iconEl.className = 'material-symbols-outlined text-[64px] mb-4 text-neutral-500 animate-pulse';
+
+        overlay.style.display = 'flex';
+    }
+
+    function resetApp(delay) {
+        setTimeout(() => {
+            document.getElementById('notificationOverlay').style.display = 'none';
+            document.getElementById('manualEmpId').value = '';
+            empleadoDetectado = '';
+            tipoMovimientoActual = '';
+            switchState('state-dashboard');
+        }, delay);
+    }
+</script>
+</body>
+</html>
