@@ -119,9 +119,9 @@
                     <h2 class="text-xs font-label-caps uppercase tracking-widest text-neutral-200">Control Biométrico Activo</h2>
                 </div>
                 <p class="text-[11px] text-neutral-400 leading-relaxed font-display">
-                    El sistema registrará con precisión las entradas, salidas y tiempos de comida en tiempo real[cite: 3].
-                    La foto de verificación se toma sola (no requiere botón) y, junto con tu ubicación GPS,
-                    es obligatoria para poder fichar conforme al Art. 132 LFT[cite: 3].
+                    Terminal operada por el encargado de checar al personal[cite: 3]. Teclea el número de empleado
+                    de cada trabajador y apunta la cámara hacia su rostro — la foto se toma sola (no requiere botón)
+                    y, junto con la ubicación GPS, es obligatoria para poder fichar conforme al Art. 132 LFT[cite: 3].
                 </p>
             </div>
 
@@ -133,8 +133,8 @@
             </div>
 
             <div class="mt-6 border-t border-neutral-800 pt-6">
-                <label class="text-[9px] font-label-caps text-neutral-500 uppercase tracking-widest mb-2 block">ID de Empleado (Manual)</label>
-                <input type="text" id="manualEmpId" placeholder="Ej. EMP-0142" class="w-full bg-transparent border-0 border-b border-neutral-600 focus:border-white focus:ring-0 px-0 py-2 text-xl font-display uppercase transition-colors placeholder:text-neutral-700" autocomplete="off"/>
+                <label class="text-[9px] font-label-caps text-neutral-500 uppercase tracking-widest mb-2 block">Número de Empleado del Trabajador</label>
+                <input type="text" id="manualEmpId" placeholder="Ej. EMP-0142" class="w-full bg-transparent border-0 border-b border-neutral-600 focus:border-white focus:ring-0 px-0 py-2 text-xl font-display uppercase transition-colors placeholder:text-neutral-700" autocomplete="off" autofocus/>
             </div>
 
             <div class="mt-6 pt-2">
@@ -177,7 +177,7 @@
     <div id="state-photo" class="camera-viewport">
         <div class="p-4 flex justify-between items-center bg-black/80 backdrop-blur-md absolute top-0 w-full z-20">
             <span class="text-xs font-label-caps uppercase tracking-widest text-white flex items-center gap-2">
-                <span class="material-symbols-outlined text-sm">face</span> Verificación Facial
+                <span class="material-symbols-outlined text-sm">face</span> Foto del Trabajador
             </span>
         </div>
         <video id="frontVideoFeed" autoplay playsinline muted></video>
@@ -188,7 +188,7 @@
              a la cámara no controle el momento exacto de la foto. -->
         <div id="countdownOverlay" class="absolute inset-0 z-20 hidden flex-col items-center justify-center bg-black/30">
             <span id="countdownNumber" class="text-white text-[72px] font-display font-bold leading-none"></span>
-            <p class="text-white text-[10px] font-label-caps uppercase tracking-widest mt-3 px-8 text-center">Mantén tu rostro frente a la cámara</p>
+            <p class="text-white text-[10px] font-label-caps uppercase tracking-widest mt-3 px-8 text-center">Apunta al trabajador y mantén su rostro en el encuadre</p>
         </div>
     </div>
 
@@ -381,50 +381,68 @@
         ]);
     }
 
+    // NUEVO (cambio de operación pedido por el cliente): el checador ya NO se
+    // lo da cada trabajador — lo opera UNA sola persona encargada, que checa a
+    // todo el personal tecleando su número de empleado (los albañiles no
+    // manejan bien la tecnología, así que no tiene caso pedirles que escaneen
+    // su propio QR). Por eso este flujo ya NO abre el lector de QR cuando el
+    // campo está vacío: solo pide que se capture el ID. El lector de QR
+    // (iniciarEscaneoQR_ más abajo) se deja intacto y funcional por si algún
+    // día se vuelve a necesitar, pero ya no se llama desde aquí.
     async function iniciarFlujo(tipo) {
         flujoAbortado = false;
         iniciarGps_();
         tipoMovimientoActual = tipo;
         const manualId = document.getElementById('manualEmpId').value.trim();
 
-        if (manualId) {
-            await procesarIdentificacion_(manualId);
-        } else {
-            if (typeof Html5Qrcode === 'undefined') {
-                mostrarNotificacion('error', 'Lector QR no disponible',
-                    window.__qrLibFallo
-                        ? 'No se pudo cargar el lector de QR (revisa tu conexión a internet) o abre el enlace en Chrome/Safari.'
-                        : 'El lector de QR aún no termina de cargar, espera unos segundos e intenta de nuevo.');
-                setTimeout(cancelarFlujo, 3500);
-                return;
-            }
+        if (!manualId) {
+            mostrarNotificacion('error', 'Falta el número de empleado', 'Escribe el ID del trabajador (ej. EMP-0142) antes de elegir el movimiento.');
+            setTimeout(() => { document.getElementById('notificationOverlay').style.display = 'none'; }, 2500);
+            document.getElementById('manualEmpId').focus();
+            return;
+        }
 
-            switchState('state-qr');
-            html5QrCode = new Html5Qrcode("qr-reader");
-            let yaProcesado = false;
+        await procesarIdentificacion_(manualId);
+    }
 
-            try {
-                await conTimeout_(
-                    html5QrCode.start(
-                        { facingMode: "environment" },
-                        { fps: 10, qrbox: { width: 250, height: 250 } },
-                        (decodedText) => {
-                            if (yaProcesado) return;
-                            yaProcesado = true;
-                            html5QrCode.stop()
-                                .then(() => procesarIdentificacion_(decodedText))
-                                .catch(() => procesarIdentificacion_(decodedText));
-                        }
-                    ),
-                    10000,
-                    'La cámara no respondió. Si abriste este enlace desde WhatsApp/Instagram, ábrelo en tu navegador (Chrome/Safari).'
-                );
-            } catch (err) {
-                console.error('Error de cámara QR:', err);
-                const detalle = (err && (err.message || err.name)) ? (err.message || err.name) : 'Permisos de cámara denegados.';
-                mostrarNotificacion('error', 'Cámara Falló', detalle);
-                setTimeout(cancelarFlujo, 4000);
-            }
+    // NUEVO: lector de QR — funcional, pero ya no se invoca desde iniciarFlujo()
+    // (ver comentario arriba). Se deja disponible por si en el futuro se vuelve
+    // a repartir el checador entre los propios trabajadores.
+    async function iniciarEscaneoQR_() {
+        if (typeof Html5Qrcode === 'undefined') {
+            mostrarNotificacion('error', 'Lector QR no disponible',
+                window.__qrLibFallo
+                    ? 'No se pudo cargar el lector de QR (revisa tu conexión a internet) o abre el enlace en Chrome/Safari.'
+                    : 'El lector de QR aún no termina de cargar, espera unos segundos e intenta de nuevo.');
+            setTimeout(cancelarFlujo, 3500);
+            return;
+        }
+
+        switchState('state-qr');
+        html5QrCode = new Html5Qrcode("qr-reader");
+        let yaProcesado = false;
+
+        try {
+            await conTimeout_(
+                html5QrCode.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    (decodedText) => {
+                        if (yaProcesado) return;
+                        yaProcesado = true;
+                        html5QrCode.stop()
+                            .then(() => procesarIdentificacion_(decodedText))
+                            .catch(() => procesarIdentificacion_(decodedText));
+                    }
+                ),
+                10000,
+                'La cámara no respondió. Si abriste este enlace desde WhatsApp/Instagram, ábrelo en tu navegador (Chrome/Safari).'
+            );
+        } catch (err) {
+            console.error('Error de cámara QR:', err);
+            const detalle = (err && (err.message || err.name)) ? (err.message || err.name) : 'Permisos de cámara denegados.';
+            mostrarNotificacion('error', 'Cámara Falló', detalle);
+            setTimeout(cancelarFlujo, 4000);
         }
     }
 
@@ -596,7 +614,13 @@
         try {
             frontVideoStream = await conTimeout_(
                 navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
+                    // NUEVO: cámara TRASERA en vez de frontal. Con el modelo de
+                    // operador único, quien sostiene el teléfono NO es la persona
+                    // que se está checando — apuntar la cámara frontal solo
+                    // fotografiaría al operador una y otra vez. Con la trasera, el
+                    // operador apunta hacia la cara de cada trabajador al momento
+                    // de checarlo, como un punto de control.
+                    video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 640 } },
                     audio: false
                 }),
                 10000,
@@ -695,7 +719,12 @@
     function resetApp(delay) {
         setTimeout(() => {
             document.getElementById('notificationOverlay').style.display = 'none';
-            document.getElementById('manualEmpId').value = '';
+            const campoId = document.getElementById('manualEmpId');
+            campoId.value = '';
+            // NUEVO: el operador checa a muchos trabajadores seguidos, uno tras
+            // otro — sin esto, tendría que tocar el campo cada vez antes de
+            // teclear el siguiente número de empleado.
+            campoId.focus();
             empleadoDetectado = '';
             tipoMovimientoActual = '';
             switchState('state-dashboard');
