@@ -133,8 +133,18 @@
             </div>
 
             <div class="mt-6 border-t border-neutral-800 pt-6">
-                <label class="text-[9px] font-label-caps text-neutral-500 uppercase tracking-widest mb-2 block">Número de Empleado del Trabajador</label>
-                <input type="text" id="manualEmpId" placeholder="Ej. EMP-0142" class="w-full bg-transparent border-0 border-b border-neutral-600 focus:border-white focus:ring-0 px-0 py-2 text-xl font-display uppercase transition-colors placeholder:text-neutral-700" autocomplete="off" autofocus/>
+                <label class="text-[9px] font-label-caps text-neutral-500 uppercase tracking-widest mb-2 block">Trabajador</label>
+                <!-- NUEVO: buscador de trabajadores separado por Operativo/Administrativo.
+                     El operador puede teclear el número directo (si ya se lo sabe de
+                     memoria) o el nombre (si no) — el datalist filtra por ambos a la vez,
+                     nativo del navegador, sin librerías extra. -->
+                <div class="flex gap-2 mb-3">
+                    <button type="button" id="btnCatOperativo" onclick="cambiarCategoriaBusqueda_('operativo')" class="flex-1 py-2 text-[10px] font-label-caps uppercase tracking-widest rounded-sm transition-colors">Operativos</button>
+                    <button type="button" id="btnCatAdministrativo" onclick="cambiarCategoriaBusqueda_('administrativo')" class="flex-1 py-2 text-[10px] font-label-caps uppercase tracking-widest rounded-sm transition-colors">Administrativos</button>
+                </div>
+                <input type="text" id="manualEmpId" placeholder="Número o nombre del trabajador" class="w-full bg-transparent border-0 border-b border-neutral-600 focus:border-white focus:ring-0 px-0 py-2 text-xl font-display uppercase transition-colors placeholder:text-neutral-700 placeholder:normal-case placeholder:text-sm" autocomplete="off" autofocus/>
+                <datalist id="datalistOperativos"></datalist>
+                <datalist id="datalistAdministrativos"></datalist>
             </div>
 
             <div class="mt-6 pt-2">
@@ -355,6 +365,13 @@
             mostrarNotificacion('error', 'Error de Conexión', r.message || 'No se pudo cargar el catálogo de obras.');
             setTimeout(() => { document.getElementById('notificationOverlay').style.display = 'none'; }, 4000);
         }
+
+        // NUEVO: catálogo de trabajadores para el buscador (ver
+        // obtenerEmpleadosParaChecador() en Config.gs). Si falla, no se
+        // bloquea nada — el operador siempre puede escribir el número a mano.
+        const rEmp = await llamarBackend_('obtenerEmpleados', {});
+        if (rEmp.success) cargarListaEmpleados_(rEmp.operativos, rEmp.administrativos);
+        cambiarCategoriaBusqueda_('operativo'); // la mayoría del personal es operativo
     });
 
     function cargarObras(obras) {
@@ -365,6 +382,37 @@
         } else {
             sel.innerHTML = '<option value="">Sin obras registradas</option>';
         }
+    }
+
+    // NUEVO: escapa HTML antes de insertar nombres/IDs que vienen de la hoja
+    // de cálculo (texto libre) dentro de innerHTML, para no romper el marcado
+    // si algún nombre trae comillas, "<", "&", etc.
+    function escaparHtml_(str) {
+        return (str || '').toString()
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function cargarListaEmpleados_(operativos, administrativos) {
+        const dlOp = document.getElementById('datalistOperativos');
+        const dlAd = document.getElementById('datalistAdministrativos');
+        dlOp.innerHTML = (operativos || []).map(e => `<option value="${escaparHtml_(e.id)}">${escaparHtml_(e.nombre)}</option>`).join('');
+        dlAd.innerHTML = (administrativos || []).map(e => `<option value="${escaparHtml_(e.id)}">${escaparHtml_(e.nombre)}</option>`).join('');
+    }
+
+    // NUEVO: alterna qué catálogo (Operativos/Administrativos) alimenta el
+    // buscador — solo cambia qué <datalist> queda ligado al campo de texto,
+    // el campo sigue siendo uno solo.
+    function cambiarCategoriaBusqueda_(categoria) {
+        const input = document.getElementById('manualEmpId');
+        input.setAttribute('list', categoria === 'administrativo' ? 'datalistAdministrativos' : 'datalistOperativos');
+        input.value = '';
+        input.focus();
+
+        const activo = 'flex-1 py-2 text-[10px] font-label-caps uppercase tracking-widest rounded-sm transition-colors bg-white text-black';
+        const inactivo = 'flex-1 py-2 text-[10px] font-label-caps uppercase tracking-widest rounded-sm transition-colors border border-neutral-700 text-neutral-400';
+        document.getElementById('btnCatOperativo').className = (categoria === 'operativo') ? activo : inactivo;
+        document.getElementById('btnCatAdministrativo').className = (categoria === 'administrativo') ? activo : inactivo;
     }
 
     function switchState(stateId) {
