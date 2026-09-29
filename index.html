@@ -366,11 +366,14 @@
             setTimeout(() => { document.getElementById('notificationOverlay').style.display = 'none'; }, 4000);
         }
 
-        // NUEVO: catálogo de trabajadores para el buscador (ver
-        // obtenerEmpleadosParaChecador() en Config.gs). Si falla, no se
-        // bloquea nada — el operador siempre puede escribir el número a mano.
-        const rEmp = await llamarBackend_('obtenerEmpleados', {});
-        if (rEmp.success) cargarListaEmpleados_(rEmp.operativos, rEmp.administrativos);
+        // CAMBIO: el catálogo de trabajadores YA NO se carga aquí de una sola
+        // vez — ahora depende de la obra elegida (ver recargarEmpleadosPorObra_
+        // y el listener "change" de obraSelect, agregado dentro de
+        // cargarObras). El cliente pidió poder dividir el personal por obra
+        // ("Se puede dividir por obra?"); un colaborador sin obra asignada ya
+        // no debe aparecer en ningún checador hasta que se le asigne una
+        // desde el Portal RH (pestaña Obras), así que mientras no haya obra
+        // seleccionada el buscador simplemente empieza vacío.
         cambiarCategoriaBusqueda_('operativo'); // la mayoría del personal es operativo
     });
 
@@ -382,6 +385,26 @@
         } else {
             sel.innerHTML = '<option value="">Sin obras registradas</option>';
         }
+        // NUEVO: cada vez que se cambia la obra, se vuelve a pedir el
+        // catálogo de trabajadores YA FILTRADO a esa obra (ver
+        // obtenerEmpleadosParaChecador(obra) en Config.gs, del lado del
+        // backend). El listener se agrega una sola vez (cargarObras solo
+        // corre una vez al iniciar).
+        sel.addEventListener('change', recargarEmpleadosPorObra_);
+    }
+
+    // NUEVO: recarga el buscador de trabajadores (Operativos/Administrativos)
+    // para la obra actualmente seleccionada. Si no hay obra seleccionada, el
+    // buscador se deja vacío a propósito — sin obra no hay forma de saber a
+    // quién mostrar.
+    async function recargarEmpleadosPorObra_() {
+        const obra = document.getElementById('obraSelect').value;
+        const campoBusqueda = document.getElementById('manualEmpId');
+        if (campoBusqueda) campoBusqueda.value = ''; // evita dejar tecleado un nombre de la obra anterior
+        if (!obra) { cargarListaEmpleados_([], []); return; }
+        const rEmp = await llamarBackend_('obtenerEmpleados', { obra });
+        if (rEmp.success) cargarListaEmpleados_(rEmp.operativos, rEmp.administrativos);
+        else cargarListaEmpleados_([], []);
     }
 
     // NUEVO: escapa HTML antes de insertar nombres/IDs que vienen de la hoja
