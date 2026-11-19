@@ -112,16 +112,35 @@
             </div>
         </header>
 
-        <main class="flex-grow flex flex-col justify-center px-6">
+        <!-- CORRECCIÓN: antes este contenedor tenía "justify-center" y SIN
+             overflow propio, dentro de un <body style="overflow:hidden">. Si el
+             contenido (tarjeta + selector de obra + buscador + botón de
+             diagnóstico) era más alto que la pantalla del teléfono, el excedente
+             quedaba recortado por el body y era IMPOSIBLE llegar a él con swipe
+             — eso es justo lo que reportaron Marcela y Martín ("no me deja
+             deslizar hacia abajo" / pantalla "congelada"). Ahora este <main> es
+             su propio contenedor con scroll (min-h-0 es necesario para que un
+             hijo flex-grow pueda encogerse y scrollear en vez de desbordarse en
+             silencio), y "justify-start" + padding vertical evita el otro bug
+             clásico de Safari/Chrome móvil donde el contenido arriba de un
+             flex-box centrado y recortado no se puede alcanzar ni haciendo
+             scroll hacia arriba. El body se queda con overflow:hidden (así la
+             app no rebota como página web), pero ahora el scroll "real" vive
+             aquí adentro. -->
+        <main class="flex-grow min-h-0 overflow-y-auto overscroll-contain flex flex-col justify-start px-6 py-6">
             <div class="border border-neutral-800 bg-neutral-900/50 p-5 rounded-sm">
                 <div class="flex items-start gap-3 mb-3">
                     <span class="material-symbols-outlined text-neutral-300">shield_person</span>
                     <h2 class="text-xs font-label-caps uppercase tracking-widest text-neutral-200">Control Biométrico Activo</h2>
                 </div>
+                <!-- CORRECCIÓN: texto actualizado para reflejar que ahora cada
+                     trabajador se checa a sí mismo con la cámara frontal (ver
+                     nota junto a getUserMedia más abajo), ya no "el encargado"
+                     apuntando la cámara trasera hacia otra persona. -->
                 <p class="text-[11px] text-neutral-400 leading-relaxed font-display">
-                    Terminal operada por el encargado de checar al personal. Teclea el número de empleado
-                    de cada trabajador y apunta la cámara hacia su rostro — la foto se toma sola (no requiere botón)
-                    y, junto con la ubicación GPS, es obligatoria para poder fichar conforme al Art. 132 LFT.
+                    Terminal de autoservicio. Teclea tu número de empleado y mantén tu rostro frente a la
+                    cámara — la foto se toma sola (no requiere botón) y, junto con tu ubicación GPS,
+                    es obligatoria para poder fichar conforme al Art. 132 LFT.
                 </p>
             </div>
 
@@ -198,7 +217,10 @@
              a la cámara no controle el momento exacto de la foto. -->
         <div id="countdownOverlay" class="absolute inset-0 z-20 hidden flex-col items-center justify-center bg-black/30">
             <span id="countdownNumber" class="text-white text-[72px] font-display font-bold leading-none"></span>
-            <p class="text-white text-[10px] font-label-caps uppercase tracking-widest mt-3 px-8 text-center">Apunta al trabajador y mantén su rostro en el encuadre</p>
+            <!-- CORRECCIÓN: texto actualizado de "Apunta al trabajador..." (operador
+                 fotografiando a alguien más) a instrucción en segunda persona, ya que
+                 ahora es la cámara frontal y cada quien se fotografía a sí mismo. -->
+            <p class="text-white text-[10px] font-label-caps uppercase tracking-widest mt-3 px-8 text-center">Mantén tu rostro dentro del encuadre</p>
         </div>
     </div>
 
@@ -452,7 +474,7 @@
         ]);
     }
 
-    // NUEVO (cambio de operación pedido por el cliente): el checador ya NO se
+    // CAMBIO (cambio de operación pedido por el cliente): el checador ya NO se
     // lo da cada trabajador — lo opera UNA sola persona encargada, que checa a
     // todo el personal tecleando su número de empleado (los albañiles no
     // manejan bien la tecnología, así que no tiene caso pedirles que escaneen
@@ -460,6 +482,15 @@
     // campo está vacío: solo pide que se capture el ID. El lector de QR
     // (iniciarEscaneoQR_ más abajo) se deja intacto y funcional por si algún
     // día se vuelve a necesitar, pero ya no se llama desde aquí.
+    //
+    // ACTUALIZACIÓN: la cámara que toma la foto de verificación (más abajo, en
+    // iniciarCamaraFrontal) SÍ cambió de trasera a frontal — en campo, cada
+    // trabajador terminó usando su propio teléfono tipo selfie, no un único
+    // operador fotografiando a los demás con la trasera. Si en algún momento
+    // vuelve a haber un operador único fotografiando a terceros (p. ej. solo
+    // para "Operativos"), lo más limpio sería condicionar el facingMode al
+    // valor de btnCatOperativo/btnCatAdministrativo (ver cambiarCategoriaBusqueda_
+    // arriba) en vez de dejarlo fijo para todos.
     async function iniciarFlujo(tipo) {
         flujoAbortado = false;
         iniciarGps_();
@@ -478,7 +509,9 @@
 
     // NUEVO: lector de QR — funcional, pero ya no se invoca desde iniciarFlujo()
     // (ver comentario arriba). Se deja disponible por si en el futuro se vuelve
-    // a repartir el checador entre los propios trabajadores.
+    // a repartir el checador entre los propios trabajadores. Esta sí debe seguir
+    // usando la cámara TRASERA ('environment'): es para leer un QR/credencial
+    // física, no para fotografiar un rostro, así que no se toca aquí.
     async function iniciarEscaneoQR_() {
         if (typeof Html5Qrcode === 'undefined') {
             mostrarNotificacion('error', 'Lector QR no disponible',
@@ -598,6 +631,8 @@
                     resultado += `GPS: FALLÓ (${motivos[err.code] || err.message}).\n`;
                     if (err.code === 1) {
                         resultado += ' -> Ya estaba denegado de un intento anterior. Hay que restablecerlo desde el ícono de info/candado de ESTA página.\n';
+                    } else if (err.code === 3) {
+                        resultado += ' -> No es un bloqueo de permiso del sitio: revisa que la Ubicación del sistema esté activada en el teléfono (Ajustes > Ubicación), en modo "Alta precisión", y que Chrome tenga permiso de Ubicación a nivel Android (Ajustes > Apps > Chrome > Permisos). Prueba también al aire libre o cerca de una ventana.\n';
                     }
                     resolve();
                 },
@@ -605,7 +640,7 @@
             );
         });
 
-        resultado += '\nSi dice "denegado": mantén tocado el ícono de información (i) o candado junto a la dirección de ESTA página exacta, entra a "Permisos del sitio" y activa Cámara y Ubicación. Luego recarga esta página.';
+        resultado += '\nSi dice "denegado": mantén tocado el ícono de información (i) o candado junto a la dirección de ESTA página exacta, entra a "Permisos del sitio" y activa Cámara y Ubicación. Luego recarga esta página.\nSi dice "tiempo agotado": generalmente no es un permiso del sitio, sino la Ubicación del sistema (ver arriba).';
 
         alert(resultado);
     }
@@ -685,13 +720,12 @@
         try {
             frontVideoStream = await conTimeout_(
                 navigator.mediaDevices.getUserMedia({
-                    // NUEVO: cámara TRASERA en vez de frontal. Con el modelo de
-                    // operador único, quien sostiene el teléfono NO es la persona
-                    // que se está checando — apuntar la cámara frontal solo
-                    // fotografiaría al operador una y otra vez. Con la trasera, el
-                    // operador apunta hacia la cara de cada trabajador al momento
-                    // de checarlo, como un punto de control.
-                    video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 640 } },
+                    // CORRECCIÓN: cámara FRONTAL ('user'), antes era 'environment'
+                    // (trasera). En campo, cada trabajador se checa a sí mismo con
+                    // su propio teléfono, tipo selfie — con la trasera, la persona
+                    // que sostiene el teléfono nunca sale en su propia foto de
+                    // verificación. Reportado por Marcela y Martín en pruebas.
+                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
                     audio: false
                 }),
                 10000,
